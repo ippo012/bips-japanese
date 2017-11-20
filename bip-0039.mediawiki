@@ -1,0 +1,148 @@
+<pre>
+  BIP: 39
+  Layer: Applications
+  Title: Mnemonic code for generating deterministic keys
+  Author: Marek Palatinus <slush@satoshilabs.com>
+          Pavol Rusnak <stick@satoshilabs.com>
+          Aaron Voisine <voisine@gmail.com>
+          Sean Bowe <ewillbefull@gmail.com>
+  Comments-Summary: Unanimously Discourage for implementation
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0039
+  Status: Proposed
+  Type: Standards Track
+  Created: 2013-09-10
+</pre>
+
+==概要==
+
+このBIPは、決定性ウォレットの生成のためにニーモニックコードまたはニーモニックセンテンス（覚えやすい単語のグループ）の実装について説明します。 
+
+ニーモニックの生成とそれをバイナリシードに変換するという2つの部分で構成されています。
+このシードは、BIP-0032または同様の方法を使用して決定性ウォレットを生成するために使用できます。
+
+==動機==
+
+ニーモニックコードまたはセンテンスは、ウォレットシードの生のバイナリや16進数と比較して、読みやすいため優れています。
+そのセンテンスは、紙に保存したり、電話越しに伝えることができます。
+
+このガイドは、コンピュータが生成したランダムなデータを、人間が判読可能な形式で転送する方法を目的としています。
+これは、ユーザーが作成した文章（別名ブレインウォレット）をウォレットシードに処理する方法ではありません。
+
+==ニーモニックの作成==
+
+ニーモニックはエントロピーを32ビットの倍数でエンコードする必要があります。
+エントロピーを大きくするとセキュリティは改善されますが、文章の長さは増加します。
+初期エントロピー長をENTと呼びます。
+ENTの許容サイズは128〜256ビットです。 
+
+最初に、ENTビットの初期エントロピーが生成されます。チェックサムは、SHA256ハッシュの最初の 
+<pre>ENT / 32</pre>
+ビットになります。
+このチェックサムは、初期エントロピーの最後に追加されます。
+
+次に、これらの連結されたビットは、11ビットのグループに分割され、それぞれが0〜2047の数字を符号化し、ワードリストへのインデックスとして働きます。
+最後に、これらの数字を単語に変換し、結合された単語をニーモニック・センテンスとして使用します。 
+
+次の表は、初期エントロピー長（ENT）、チェックサム長（CS）および生成されたニーモニックセンテンス（MS）の長さの関係を示しています。
+
+<pre>
+CS = ENT / 32
+MS = (ENT + CS) / 11
+
+|  ENT  | CS | ENT+CS |  MS  |
++-------+----+--------+------+
+|  128  |  4 |   132  |  12  |
+|  160  |  5 |   165  |  15  |
+|  192  |  6 |   198  |  18  |
+|  224  |  7 |   231  |  21  |
+|  256  |  8 |   264  |  24  |
+</pre>
+
+==ワードリスト==
+
+理想的なワードリストは以下の特徴を有します
+
+a) スマートな単語の選択
+   - ワードリストは最初の4文字だけで単語を明白に識別できます。
+
+b) 似ている単語の排除
+   - 次のような単語の組み合わせは、文章を覚えにくくするだけではなく、誤りを引き起こす原因となります。
+     "build" と "built", "woman" と "women", "quick" と "quickly"
+
+c) 並び替えられた単語のリスト
+   - ワードリストがソートされ、コードワードより効率的な検索が可能になります。（つまり、実装では線形検索の代わりにバイナリ検索を使用することができます。）
+   - また、これにより効率的な圧縮をするためのtrie（プレフィックスツリー）を使用することができます。
+
+ワードリストにはネイティブな文字を含めることができますが、正規化フォーム互換性分解（NFKD）を使用してUTF-8でエンコードする必要があります。
+
+==ニーモニックからシードへの変換==
+
+ユーザーは、ニーモニックをパスフレーズで保護するかを選択することができます。
+パスフレーズが存在しない場合は、代わりに空の文字列 "" が使用されます。 
+ニーモニックからバイナリシードを作成するには、パスワードとして利用されるニーモニックセンテンス（UTF-8 NFKD）とsaltとして使用される文字列「mnemonic」+ パスフレーズ（UTF-8 NFKD）を引数にするPBKDF2関数を利用します。
+反復回数は2048に設定され、HMAC-SHA512は疑似ランダム関数として利用されます。派生キーの長さは512ビット（= 64バイト）です。 
+
+このシードは、あとでBIP-0032または同様の方法を使用して決定性ウォレットを生成するために使用できます。 
+
+ニーモニックセンテンスからバイナリシードへの変換は、センテンス
+生成することから完全に独立している。
+これはかなり単純なコードになります。
+文構造に制約はなく、クライアントは自分のワードリストや文章ジェネレータ全体を自由に実装することができ、誤読やその他の目的でワードリストに柔軟性を持たせることができます。 
+
+「ニーモニックを生成する」で説明したアルゴリズムでは生成されていないニーモニックを使用することもできますが、これは推奨されていませんが、ソフトウェアはニーモニック・センテンスのチェックサムをワードリストで計算し、 すべてのパスフレーズは有効なシード（したがって確定的ウォレット）を生成するが、正しいパスフレーズのみが使用可能なウォレットを作成するので、説明された方法はまた、もっともらしい拒否性も提供する。
+
+==ワードリスト==
+
+* [[bip-0039/bip-0039-wordlists.md|Moved to separate document]]
+
+==Test vectors==
+
+テストベクトルは、入力エントロピー、ニーモニックおよびシードを含む。パスフレーズ "TREZOR"はすべてのベクトルに使用されます
+
+https://github.com/trezor/python-mnemonic/blob/master/vectors.json
+
+以下もまた https://github.com/bip32JP/bip32JP.github.io/blob/master/test_JP_BIP39.json
+
+(厳密に正規化された記号をパスフレーズとした日本語の単語リストテスト)
+
+==実装例==
+
+ワードリストを含むリファレンスの実装以下から利用できます。
+
+http://github.com/trezor/python-mnemonic
+
+==その他の実装例==
+
+Elixir:
+* https://github.com/izelnakri/mnemonic
+
+Objective-C:
+* https://github.com/nybex/NYMnemonic
+
+Haskell:
+* https://github.com/haskoin/haskoin
+
+.NET C# (PCL):
+* https://github.com/Thashiznets/BIP39.NET
+
+.NET C# (PCL):
+* https://github.com/NicolasDorier/NBitcoin
+
+JavaScript:
+* https://github.com/bitpay/bitcore-mnemonic
+* https://github.com/bitcoinjs/bip39 (used by [[https://github.com/blockchain/My-Wallet-V3/blob/v3.8.0/src/hd-wallet.js#L121-L146|blockchain.info]])
+
+Ruby:
+* https://github.com/sreekanthgs/bip_mnemonic
+
+Rust:
+* https://github.com/infincia/bip39-rs
+
+Swift:
+* https://github.com/CikeQiu/CKMnemonic
+
+C++:
+* https://github.com/libbitcoin/libbitcoin/blob/master/include/bitcoin/bitcoin/wallet/mnemonic.hpp
+
+C (with Python/Java/Javascript bindings):
+* https://github.com/ElementsProject/libwally-core
